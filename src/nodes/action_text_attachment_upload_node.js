@@ -35,6 +35,8 @@ export class ActionTextAttachmentUploadNode extends ActionTextAttachmentNode {
     this.width = width
     this.height = height
     this.uploadError = uploadError
+    // New images default to center — the natural starting point for an inline image.
+    if (!this.alignment) this.alignment = "center"
   }
 
   createDOM() {

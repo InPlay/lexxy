@@ -1,9 +1,16 @@
 import Lexxy from "../config/lexxy"
-import { $getEditor, $getNearestRootOrShadowRoot, DecoratorNode, HISTORY_MERGE_TAG } from "lexical"
+import { $getEditor, $getNearestRootOrShadowRoot, DecoratorNode } from "lexical"
 import { createAttachmentFigure, createElement, isPreviewableImage } from "../helpers/html_helper"
 import { bytesToHumanSize, extractFileName } from "../helpers/storage_helper"
 import { parseBoolean } from "../helpers/string_helper"
 
+const ALIGNMENT_VALUES = [ "left", "center", "right" ]
+
+const ALIGNMENT_ICONS = {
+  left: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="7" width="9" height="2" rx="1"/><rect x="1" y="12" width="11" height="2" rx="1"/></svg>`,
+  center: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="3.5" y="7" width="9" height="2" rx="1"/><rect x="2.5" y="12" width="11" height="2" rx="1"/></svg>`,
+  right: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="6" y="7" width="9" height="2" rx="1"/><rect x="4" y="12" width="11" height="2" rx="1"/></svg>`,
+}
 
 export class ActionTextAttachmentNode extends DecoratorNode {
   static getType() {
@@ -33,7 +40,8 @@ export class ActionTextAttachmentNode extends DecoratorNode {
               fileName: attachment.getAttribute("filename"),
               fileSize: attachment.getAttribute("filesize"),
               width: attachment.getAttribute("width"),
-              height: attachment.getAttribute("height")
+              height: attachment.getAttribute("height"),
+              alignment: attachment.getAttribute("data-alignment"),
             })
           }), priority: 1
         }
@@ -79,7 +87,7 @@ export class ActionTextAttachmentNode extends DecoratorNode {
     return Lexxy.global.get("attachmentTagName")
   }
 
-  constructor({ tagName, sgid, src, previewable, altText, caption, contentType, fileName, fileSize, width, height }, key) {
+  constructor({ tagName, sgid, src, previewable, altText, caption, contentType, fileName, fileSize, width, height, alignment }, key) {
     super(key)
 
     this.tagName = tagName || ActionTextAttachmentNode.TAG_NAME
@@ -93,6 +101,7 @@ export class ActionTextAttachmentNode extends DecoratorNode {
     this.fileSize = fileSize
     this.width = width
     this.height = height
+    this.alignment = ALIGNMENT_VALUES.includes(alignment) ? alignment : null
 
     this.editor = $getEditor()
   }
@@ -102,7 +111,7 @@ export class ActionTextAttachmentNode extends DecoratorNode {
 
     if (this.isPreviewableAttachment) {
       figure.appendChild(this.#createDOMForImage())
-      figure.appendChild(this.#createEditableCaption())
+      figure.appendChild(this.#createCaptionDisplay())
     } else {
       figure.appendChild(this.#createDOMForFile())
       figure.appendChild(this.#createDOMForNotImage())
@@ -111,10 +120,29 @@ export class ActionTextAttachmentNode extends DecoratorNode {
     return figure
   }
 
-  updateDOM(_prevNode, dom) {
-    const caption = dom.querySelector("figcaption textarea")
-    if (caption && this.caption) {
-      caption.value = this.caption
+  updateDOM(prevNode, dom) {
+    if (prevNode.caption !== this.caption) {
+      const captionEl = dom.querySelector("figcaption.attachment__caption--display")
+      if (captionEl) captionEl.textContent = this.caption
+    }
+
+    if (prevNode.alignment !== this.alignment) {
+      ALIGNMENT_VALUES.forEach(a => dom.classList.remove(`attachment--align-${a}`))
+      if (this.alignment) dom.classList.add(`attachment--align-${this.alignment}`)
+      this.#updateAlignmentButtons(dom, this.alignment)
+    }
+
+    if (prevNode.width !== this.width) {
+      const img = dom.querySelector("img")
+      if (img) {
+        if (this.width) {
+          img.style.width = `${this.width}px`
+          img.style.maxWidth = "none"
+        } else {
+          img.style.width = ""
+          img.style.maxWidth = ""
+        }
+      }
     }
 
     return false
@@ -140,6 +168,7 @@ export class ActionTextAttachmentNode extends DecoratorNode {
       filesize: this.fileSize,
       width: this.width,
       height: this.height,
+      "data-alignment": this.alignment || null,
       presentation: "gallery"
     })
 
@@ -160,7 +189,8 @@ export class ActionTextAttachmentNode extends DecoratorNode {
       fileName: this.fileName,
       fileSize: this.fileSize,
       width: this.width,
-      height: this.height
+      height: this.height,
+      alignment: this.alignment
     }
   }
 
@@ -173,8 +203,14 @@ export class ActionTextAttachmentNode extends DecoratorNode {
     figure.draggable = true
     figure.dataset.lexicalNodeKey = this.__key
 
+    if (this.alignment) figure.classList.add(`attachment--align-${this.alignment}`)
+
     const deleteButton = createElement("lexxy-node-delete-button")
     figure.appendChild(deleteButton)
+
+    if (this.isPreviewableAttachment) {
+      figure.appendChild(this.#createAlignmentControls(figure))
+    }
 
     return figure
   }
@@ -188,7 +224,14 @@ export class ActionTextAttachmentNode extends DecoratorNode {
   }
 
   #createDOMForImage(options = {}) {
-    const img = createElement("img", { src: this.src, draggable: false, alt: this.altText, ...this.#imageDimensions, ...options })
+    const img = createElement("img", { src: this.src, draggable: false, alt: this.altText, ...options })
+
+    // Use style.width instead of the width attribute — lexxy-content.css applies
+    // `inline-size: auto` to all imgs which overrides the HTML width attribute.
+    if (this.width) {
+      img.style.width = `${this.width}px`
+      img.style.maxWidth = "none"
+    }
 
     if (this.previewable && !this.isPreviewableImage) {
       img.onerror = () => this.#swapPreviewToFileDOM(img)
@@ -196,7 +239,99 @@ export class ActionTextAttachmentNode extends DecoratorNode {
 
     const container = createElement("div", { className: "attachment__container" })
     container.appendChild(img)
+    container.appendChild(this.#createResizeHandle(img))
     return container
+  }
+
+  #createAlignmentControls(figure) {
+    const controls = createElement("div", { className: "lexxy-floating-controls attachment__alignment-controls" })
+    const group = createElement("div", { className: "lexxy-floating-controls__group" })
+
+    for (const value of ALIGNMENT_VALUES) {
+      const btn = createElement("button", { type: "button", title: `Align ${value}` })
+      btn.innerHTML = ALIGNMENT_ICONS[value]
+      btn.dataset.alignment = value
+      if (this.alignment === value) btn.setAttribute("aria-pressed", "true")
+
+      btn.addEventListener("click", (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        this.editor.update(() => {
+          const current = this.getLatest()
+          const newAlignment = current.alignment === value ? null : value
+          current.getWritable().alignment = newAlignment
+        }, { discrete: true })
+      })
+
+      group.appendChild(btn)
+    }
+
+    const divider = createElement("div", { className: "lexxy-floating-controls__divider" })
+    group.appendChild(divider)
+
+    const captionBtn = createElement("button", { type: "button", title: "Edit caption" })
+    captionBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="2" rx="1"/><rect x="6.5" y="4" width="3" height="10" rx="1"/></svg>`
+
+    captionBtn.addEventListener("click", (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      let currentCaption = ""
+      this.editor.getEditorState().read(() => { currentCaption = this.getLatest().caption })
+      const result = prompt("Caption", currentCaption)
+      if (result === null) return
+      this.editor.update(() => {
+        this.getLatest().getWritable().caption = result
+      }, { discrete: true })
+    })
+
+    group.appendChild(captionBtn)
+    controls.appendChild(group)
+    return controls
+  }
+
+  #updateAlignmentButtons(dom, alignment) {
+    dom.querySelectorAll(".attachment__alignment-controls button").forEach(btn => {
+      btn.setAttribute("aria-pressed", (btn.dataset.alignment === alignment).toString())
+    })
+  }
+
+  #createResizeHandle(img) {
+    const handle = createElement("div", { className: "attachment__resize-handle" })
+    let startX, startWidth
+
+    handle.addEventListener("pointerdown", (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      startX = e.clientX
+      startWidth = img.offsetWidth
+
+      const onMove = (moveEvent) => {
+        const delta = moveEvent.clientX - startX
+        const newWidth = Math.max(80, startWidth + delta)
+        img.style.width = `${newWidth}px`
+        img.style.height = "auto"
+      }
+
+      const onUp = () => {
+        const finalWidth = parseInt(img.style.width, 10) || img.offsetWidth
+        // Remove inline style — let the width attribute take over
+        img.style.width = ""
+        this.editor.update(() => {
+          const writable = this.getWritable()
+          writable.width = finalWidth
+          writable.height = null // let browser compute from aspect ratio
+        }, { discrete: true })
+        handle.releasePointerCapture(e.pointerId)
+        handle.removeEventListener("pointermove", onMove)
+        handle.removeEventListener("pointerup", onUp)
+      }
+
+      handle.setPointerCapture(e.pointerId)
+      handle.addEventListener("pointermove", onMove)
+      handle.addEventListener("pointerup", onUp)
+    })
+
+    return handle
   }
 
   #swapPreviewToFileDOM(img) {
@@ -216,11 +351,17 @@ export class ActionTextAttachmentNode extends DecoratorNode {
   }
 
   get #imageDimensions() {
-    if (this.width && this.height) {
-      return { width: this.width, height: this.height }
-    } else {
-      return {}
-    }
+    const dims = {}
+    if (this.width) dims.width = this.width
+    if (this.height) dims.height = this.height
+    return dims
+  }
+
+  #createCaptionDisplay() {
+    return createElement("figcaption", {
+      className: "attachment__caption attachment__caption--display",
+      textContent: this.caption
+    })
   }
 
   #createDOMForFile() {
@@ -243,55 +384,6 @@ export class ActionTextAttachmentNode extends DecoratorNode {
     return figcaption
   }
 
-  #createEditableCaption() {
-    const caption = createElement("figcaption", { className: "attachment__caption" })
-    const input = createElement("textarea", {
-      value: this.caption,
-      placeholder: this.fileName,
-      rows: "1"
-    })
-
-    input.addEventListener("focusin", () => input.placeholder = "Add caption...")
-    input.addEventListener("blur", (event) => this.#handleCaptionInputBlurred(event))
-    input.addEventListener("keydown", (event) => this.#handleCaptionInputKeydown(event))
-    input.addEventListener("copy", (event) => event.stopPropagation())
-    input.addEventListener("cut", (event) => event.stopPropagation())
-    input.addEventListener("paste", (event) => event.stopPropagation())
-
-    caption.appendChild(input)
-
-    return caption
-  }
-
-  #handleCaptionInputBlurred(event) {
-    this.#updateCaptionValueFromInput(event.target)
-  }
-
-  #updateCaptionValueFromInput(input) {
-    input.placeholder = this.fileName
-    this.editor.update(() => {
-      this.getWritable().caption = input.value
-    })
-  }
-
-  #handleCaptionInputKeydown(event) {
-    if (event.key === "Enter") {
-      event.preventDefault()
-      event.target.blur()
-
-      this.editor.update(() => {
-        // Place the cursor after the current image
-        this.selectNext(0, 0)
-      }, {
-        tag: HISTORY_MERGE_TAG
-      })
-    }
-
-    // Stop all keydown events from bubbling to the Lexical root element.
-    // The caption textarea is outside Lexical's content model and should
-    // handle its own keyboard events natively (Ctrl+A, Ctrl+C, Ctrl+X, etc.).
-    event.stopPropagation()
-  }
 }
 
 export function $createActionTextAttachmentNode(...args) {

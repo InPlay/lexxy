@@ -49,11 +49,11 @@
 
   --highlight-bg-1: rgba(229, 223, 6, 0.3);
   --highlight-bg-2: rgba(255, 185, 87, 0.3);
-  --highlight-bg-3: rgba(255, 118, 118, 0.3); 
+  --highlight-bg-3: rgba(255, 118, 118, 0.3);
   --highlight-bg-4: rgba(248, 137, 216, 0.3);
-  --highlight-bg-5: rgba(190, 165, 255, 0.3); 
+  --highlight-bg-5: rgba(190, 165, 255, 0.3);
   --highlight-bg-6: rgba(124, 192, 252, 0.3);
-  --highlight-bg-7: rgba(140, 255, 129, 0.3); 
+  --highlight-bg-7: rgba(140, 255, 129, 0.3);
   --highlight-bg-8: rgba(221, 170, 123, 0.3);
   --highlight-bg-9: rgba(200, 200, 200, 0.3);
 
@@ -84,4 +84,47 @@
   --lexxy-radius: 0.5ch;
   --lexxy-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   --lexxy-z-popup: 1000;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Ink scale — inverted from light mode */
+    --lexxy-color-ink:          oklch(90% 0 0);
+    --lexxy-color-ink-medium:   oklch(65% 0 0);
+    --lexxy-color-ink-light:    oklch(48% 0 0);
+    --lexxy-color-ink-lighter:  oklch(28% 0 0);
+    --lexxy-color-ink-lightest: oklch(20% 0 0);
+    --lexxy-color-ink-inverted: oklch(14% 0 0);
+
+    /* Accent — slightly lighter for dark backgrounds */
+    --lexxy-color-accent-dark:     oklch(68% 0.19 260);
+    --lexxy-color-accent-medium:   oklch(55% 0.196 258);
+    --lexxy-color-accent-light:    oklch(30% 0.026 254);
+    --lexxy-color-accent-lightest: oklch(24% 0.026 254);
+
+    /* Selection */
+    --lexxy-color-selected:       oklch(20% 0.15 258 / 0.35);
+    --lexxy-color-selected-hover: oklch(25% 0.15 258 / 0.5);
+
+    /* Code syntax — GitHub dark palette */
+    --lexxy-color-code-token-att:         #f97583;
+    --lexxy-color-code-token-comment:     #6a737d;
+    --lexxy-color-code-token-function:    #b392f0;
+    --lexxy-color-code-token-operator:    #f97583;
+    --lexxy-color-code-token-property:    #79b8ff;
+    --lexxy-color-code-token-punctuation: #e1e4e8;
+    --lexxy-color-code-token-selector:    #85e89d;
+    --lexxy-color-code-token-variable:    #ffab70;
+
+    /* Text color highlights — lightened for dark backgrounds */
+    --highlight-1: oklch(80% 0.12 90);
+    --highlight-2: oklch(78% 0.13 60);
+    --highlight-3: oklch(70% 0.14 27);
+    --highlight-4: oklch(75% 0.14 330);
+    --highlight-5: oklch(72% 0.14 305);
+    --highlight-6: oklch(72% 0.14 258);
+    --highlight-7: oklch(72% 0.14 145);
+    --highlight-8: oklch(72% 0.12 55);
+    --highlight-9: oklch(65% 0 0);
+  }
 }

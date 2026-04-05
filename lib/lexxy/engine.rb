@@ -15,6 +15,11 @@ module Lexxy
 
     initializer "lexxy.initialize" do |app|
       app.config.to_prepare do
+        # Rails 8 added ActionView::Helpers::Tags::ActionText; stub it for Rails 7.
+        unless defined?(ActionView::Helpers::Tags::ActionText)
+          require_relative "rails7_action_text_tag_shim"
+        end
+
         # TODO: We need to move these extensions to Action Text
         ActionText::TagHelper.prepend(Lexxy::TagHelper)
         ActionView::Helpers::FormHelper.prepend(Lexxy::FormHelper)
@@ -39,7 +44,11 @@ module Lexxy
         ActionText::ContentHelper.allowed_tags = default_allowed_tags + %w[ video audio source embed table tbody tr th td ]
 
         default_allowed_attributes = Class.new.include(ActionText::ContentHelper).new.sanitizer_allowed_attributes
-        ActionText::ContentHelper.allowed_attributes = default_allowed_attributes + %w[ controls poster data-language style ]
+        ActionText::ContentHelper.allowed_attributes = default_allowed_attributes + %w[ controls poster data-language style data-alignment ]
+
+        # data-alignment must survive the attachment extraction step (ATTRIBUTES) AND
+        # the HTML sanitizer (allowed_attributes above) to reach the rendered page.
+        ActionText::Attachment::ATTRIBUTES << "data-alignment" unless ActionText::Attachment::ATTRIBUTES.include?("data-alignment")
 
         Loofah::HTML5::SafeList::ALLOWED_CSS_FUNCTIONS << "var" # Allow CSS variables
       end

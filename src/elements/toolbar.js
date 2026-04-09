@@ -229,7 +229,7 @@ export class LexicalToolbarElement extends HTMLElement {
     if (!anchorNode.getParent()) { return }
 
     const { isBold, isItalic, isStrikethrough, isUnderline, isHighlight, isInLink, isInQuote, isInHeading,
-      headingTag, isInCode, isInList, listType, isInTable } = this.selection.getFormat()
+      headingTag, isInCode, isInList, listType, isInTable, paragraphAlignment } = this.selection.getFormat()
 
     this.#setButtonPressed("bold", isBold)
     this.#setButtonPressed("italic", isItalic)
@@ -252,6 +252,11 @@ export class LexicalToolbarElement extends HTMLElement {
     this.#setButtonPressed("code", isInCode)
 
     this.#setButtonPressed("table", isInTable)
+
+    this.#setButtonPressed("align-left", paragraphAlignment === "" || paragraphAlignment === "left")
+    this.#setButtonPressed("align-center", paragraphAlignment === "center")
+    this.#setButtonPressed("align-right", paragraphAlignment === "right")
+    this.#setButtonPressed("align-justify", paragraphAlignment === "justify")
 
     this.#updateUndoRedoButtonStates()
   }

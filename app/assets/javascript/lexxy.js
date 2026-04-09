@@ -4952,9 +4952,22 @@ class LexicalToolbarElement extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.dispose();
+  }
+
+  dispose() {
     this.#uninstallResizeObserver();
+    this.#unbindButtons();
     this.#unbindHotkeys();
     this.#unbindFocusListeners();
+    this.unregisterSelectionListener?.();
+    this.unregisterHistoryListener?.();
+
+    this.editorElement = null;
+    this.editor = null;
+    this.selection = null;
+
+    this.#createEditorPromise();
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
@@ -4998,10 +5011,12 @@ class LexicalToolbarElement extends HTMLElement {
     this.connectedCallback();
   }
 
-  #createEditorPromise() {
+  async #createEditorPromise() {
     this.editorPromise = new Promise((resolve) => {
       this.resolveEditorPromise = resolve;
     });
+
+    this.editorElement = await this.editorPromise;
   }
 
   #installResizeObserver() {
@@ -5017,10 +5032,14 @@ class LexicalToolbarElement extends HTMLElement {
   }
 
   #bindButtons() {
-    this.addEventListener("click", this.#handleButtonClicked.bind(this));
+    this.addEventListener("click", this.#handleButtonClicked);
   }
 
-  #handleButtonClicked(event) {
+  #unbindButtons() {
+    this.removeEventListener("click", this.#handleButtonClicked);
+  }
+
+  #handleButtonClicked = (event) => {
     this.#handleTargetClicked(event, "[data-command]", this.#dispatchButtonCommand.bind(this));
   }
 
@@ -5080,8 +5099,8 @@ class LexicalToolbarElement extends HTMLElement {
   }
 
   #unbindFocusListeners() {
-    this.editorElement.removeEventListener("lexxy:focus", this.#handleEditorFocus);
-    this.editorElement.removeEventListener("lexxy:blur", this.#handleEditorBlur);
+    this.editorElement?.removeEventListener("lexxy:focus", this.#handleEditorFocus);
+    this.editorElement?.removeEventListener("lexxy:blur", this.#handleEditorBlur);
     this.removeEventListener("keydown", this.#handleKeydown);
   }
 
@@ -5105,7 +5124,7 @@ class LexicalToolbarElement extends HTMLElement {
   }
 
   #monitorSelectionChanges() {
-    this.editor.registerUpdateListener(() => {
+    this.unregisterSelectionListener = this.editor.registerUpdateListener(() => {
       this.editor.getEditorState().read(() => {
         this.#updateButtonStates();
         this.#closeDropdowns();
@@ -5114,7 +5133,7 @@ class LexicalToolbarElement extends HTMLElement {
   }
 
   #monitorHistoryChanges() {
-    this.editor.registerUpdateListener(() => {
+    this.unregisterHistoryListener = this.editor.registerUpdateListener(() => {
       this.#updateUndoRedoButtonStates();
     });
   }
@@ -5137,7 +5156,7 @@ class LexicalToolbarElement extends HTMLElement {
     if (!anchorNode.getParent()) { return }
 
     const { isBold, isItalic, isStrikethrough, isUnderline, isHighlight, isInLink, isInQuote, isInHeading,
-      headingTag, isInCode, isInList, listType, isInTable } = this.selection.getFormat();
+      headingTag, isInCode, isInList, listType, isInTable, paragraphAlignment } = this.selection.getFormat();
 
     this.#setButtonPressed("bold", isBold);
     this.#setButtonPressed("italic", isItalic);
@@ -5160,6 +5179,11 @@ class LexicalToolbarElement extends HTMLElement {
     this.#setButtonPressed("code", isInCode);
 
     this.#setButtonPressed("table", isInTable);
+
+    this.#setButtonPressed("align-left", paragraphAlignment === "" || paragraphAlignment === "left");
+    this.#setButtonPressed("align-center", paragraphAlignment === "center");
+    this.#setButtonPressed("align-right", paragraphAlignment === "right");
+    this.#setButtonPressed("align-justify", paragraphAlignment === "justify");
 
     this.#updateUndoRedoButtonStates();
   }
@@ -7669,6 +7693,24 @@ function isSelectionHighlighted(selection) {
   }
 }
 
+function getHighlightStyles(selection) {
+  if (!wr(selection)) return null
+
+  let styles = b$3(selection.style);
+  if (!styles.color && !styles["background-color"]) {
+    const anchorNode = selection.anchor.getNode();
+    if (yr(anchorNode)) {
+      styles = b$3(anchorNode.getStyle());
+    }
+  }
+
+  const color = styles.color || null;
+  const backgroundColor = styles["background-color"] || null;
+  if (!color && !backgroundColor) return null
+
+  return { color, backgroundColor }
+}
+
 function hasHighlightStyles(cssOrStyles) {
   const styles = typeof cssOrStyles === "string" ? b$3(cssOrStyles) : cssOrStyles;
   return !!(styles.color || styles["background-color"])
@@ -8231,11 +8273,17 @@ const COMMANDS = [
   "insertOrderedList",
   "insertQuoteBlock",
   "insertCodeBlock",
+  "setCodeLanguage",
   "insertHorizontalDivider",
   "uploadImage",
   "uploadFile",
 
   "insertTable",
+
+  "alignLeft",
+  "alignCenter",
+  "alignRight",
+  "alignJustify",
 
   "undo",
   "redo"
@@ -8243,9 +8291,10 @@ const COMMANDS = [
 
 class CommandDispatcher {
   #selectionBeforeDrag = null
+  #unregister = []
 
   static configureFor(editorElement) {
-    new CommandDispatcher(editorElement);
+    return new CommandDispatcher(editorElement)
   }
 
   constructor(editorElement) {
@@ -8305,7 +8354,14 @@ class CommandDispatcher {
   }
 
   dispatchUnlink() {
-    this.#toggleLink(null);
+    this.editor.update(() => {
+      // Let adapters signal whether unlink should target a frozen link key.
+      if (this.editorElement.adapter.unlinkFrozenNode?.()) {
+        return
+      }
+
+      Z$1(null);
+    });
   }
 
   dispatchInsertUnorderedList() {
@@ -8396,6 +8452,17 @@ class CommandDispatcher {
     }
   }
 
+  dispatchSetCodeLanguage(language) {
+    this.editor.update(() => {
+      if (!this.selection.isInsideCodeBlock) return
+
+      const codeNode = this.selection.nearestNodeOfType(U$1);
+      if (!codeNode) return
+
+      codeNode.setLanguage(language);
+    });
+  }
+
   dispatchInsertHorizontalDivider() {
     this.contents.insertAtCursorEnsuringLineBelow(new HorizontalDividerNode());
     this.editor.focus();
@@ -8449,12 +8516,35 @@ class CommandDispatcher {
     this.editor.dispatchCommand($e$1, { "rows": 3, "columns": 3, "includeHeaders": true });
   }
 
+  dispatchAlignLeft() {
+    this.editor.dispatchCommand(ze$2, "left");
+  }
+
+  dispatchAlignCenter() {
+    this.editor.dispatchCommand(ze$2, "center");
+  }
+
+  dispatchAlignRight() {
+    this.editor.dispatchCommand(ze$2, "right");
+  }
+
+  dispatchAlignJustify() {
+    this.editor.dispatchCommand(ze$2, "justify");
+  }
+
   dispatchUndo() {
     this.editor.dispatchCommand(xe$1, undefined);
   }
 
   dispatchRedo() {
     this.editor.dispatchCommand(Ce$1, undefined);
+  }
+
+  dispose() {
+    while (this.#unregister.length) {
+      const unregister = this.#unregister.pop();
+      unregister();
+    }
   }
 
   #registerCommands() {
@@ -8467,12 +8557,12 @@ class CommandDispatcher {
   }
 
   #registerCommandHandler(command, priority, handler) {
-    this.editor.registerCommand(command, handler, priority);
+    this.#unregister.push(this.editor.registerCommand(command, handler, priority));
   }
 
   #registerKeyboardCommands() {
-    this.editor.registerCommand(ve$1, this.#handleArrowRightKey.bind(this), Gi);
-    this.editor.registerCommand(De$2, this.#handleTabKey.bind(this), Gi);
+    this.#registerCommandHandler(ve$1, Gi, this.#handleArrowRightKey.bind(this));
+    this.#registerCommandHandler(De$2, Gi, this.#handleTabKey.bind(this));
   }
 
   #handleArrowRightKey(event) {
@@ -8587,16 +8677,6 @@ class CommandDispatcher {
     return wr(selection) && selection.isCollapsed()
   }
 
-  // Not using TOGGLE_LINK_COMMAND because it's not handled unless you use React/LinkPlugin
-  #toggleLink(url) {
-    this.editor.update(() => {
-      if (url === null) {
-        Z$1(null);
-      } else {
-        Z$1(url);
-      }
-    });
-  }
 }
 
 function capitalize(str) {
@@ -8854,8 +8934,8 @@ class ActionTextAttachmentNode extends Fi {
     return null
   }
 
-  createAttachmentFigure() {
-    const figure = createAttachmentFigure(this.contentType, this.isPreviewableAttachment, this.fileName);
+  createAttachmentFigure(previewable = this.isPreviewableAttachment) {
+    const figure = createAttachmentFigure(this.contentType, previewable, this.fileName);
     figure.draggable = true;
     figure.dataset.lexicalNodeKey = this.__key;
 
@@ -8931,13 +9011,39 @@ class ActionTextAttachmentNode extends Fi {
     captionBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+
+      const captionDisplay = figure.querySelector(".attachment__caption--display");
+      if (!captionDisplay) return
+
       let currentCaption = "";
       this.editor.getEditorState().read(() => { currentCaption = this.getLatest().caption; });
-      const result = prompt("Caption", currentCaption);
-      if (result === null) return
-      this.editor.update(() => {
-        this.getLatest().getWritable().caption = result;
-      }, { discrete: true });
+
+      const input = createElement("input", { type: "text", className: "attachment__caption-input" });
+      input.value = currentCaption;
+      input.placeholder = "Add caption…";
+
+      let committed = false;
+      const commit = () => {
+        if (committed) return
+        committed = true;
+        const newCaption = input.value;
+        captionDisplay.style.display = "";
+        input.remove();
+        this.editor.update(() => {
+          this.getLatest().getWritable().caption = newCaption;
+        }, { discrete: true });
+      };
+
+      input.addEventListener("keydown", (ev) => {
+        ev.stopPropagation();
+        if (ev.key === "Enter") { ev.preventDefault(); commit(); }
+        if (ev.key === "Escape") { captionDisplay.style.display = ""; input.remove(); }
+      });
+      input.addEventListener("blur", commit);
+
+      captionDisplay.style.display = "none";
+      captionDisplay.after(input);
+      input.focus({ preventScroll: true });
     });
 
     group.appendChild(captionBtn);
@@ -9051,6 +9157,8 @@ function $isActionTextAttachmentNode(node) {
 }
 
 class Selection {
+  #unregister = []
+
   constructor(editorElement) {
     this.editorElement = editorElement;
     this.editorContentElement = editorElement.editorContentElement;
@@ -9175,7 +9283,8 @@ class Selection {
       headingTag: headingNode?.getTag() ?? null,
       isInList: listType !== null,
       listType,
-      isInTable: Je$1(anchorNode) !== null
+      isInTable: Je$1(anchorNode) !== null,
+      paragraphAlignment: topLevelElement?.getFormatType() ?? ""
     }
   }
 
@@ -9307,6 +9416,18 @@ class Selection {
     return this.#findPreviousSiblingUp(anchorNode)
   }
 
+  dispose() {
+    this.editorElement = null;
+    this.editorContentElement = null;
+    this.editor = null;
+    this.previouslySelectedKeys = null;
+
+    while (this.#unregister.length) {
+      const unregister = this.#unregister.pop();
+      unregister();
+    }
+  }
+
   // When all inline code text is deleted, Lexical's selection retains the stale
   // code format flag. Verify the flag is backed by actual code-formatted content:
   // a code block ancestor or a text node that carries the code format.
@@ -9322,7 +9443,7 @@ class Selection {
   // detects that stale state and clears it so newly typed text won't be
   // code-formatted.
   #clearStaleInlineCodeFormat() {
-    this.editor.registerUpdateListener(({ editorState, tags }) => {
+    this.#unregister.push(this.editor.registerUpdateListener(({ editorState, tags }) => {
       if (tags.has("history-merge") || tags.has("skip-dom-selection")) return
 
       let isStale = false;
@@ -9351,7 +9472,7 @@ class Selection {
           });
         }, 0);
       }
-    });
+    }));
   }
 
   get #currentlySelectedKeys() {
@@ -9370,29 +9491,32 @@ class Selection {
   }
 
   #processSelectionChangeCommands() {
-    this.editor.registerCommand(ke$3, this.#selectPreviousNode.bind(this), Hi);
-    this.editor.registerCommand(ve$1, this.#selectNextNode.bind(this), Hi);
-    this.editor.registerCommand(be$2, this.#selectPreviousTopLevelNode.bind(this), Hi);
-    this.editor.registerCommand(we$1, this.#selectNextTopLevelNode.bind(this), Hi);
+    this.#unregister.push(ec(
+      this.editor.registerCommand(ke$3, this.#selectPreviousNode.bind(this), Hi),
+      this.editor.registerCommand(ve$1, this.#selectNextNode.bind(this), Hi),
+      this.editor.registerCommand(be$2, this.#selectPreviousTopLevelNode.bind(this), Hi),
+      this.editor.registerCommand(we$1, this.#selectNextTopLevelNode.bind(this), Hi),
 
-    this.editor.registerCommand(ue$2, this.#selectDecoratorNodeBeforeDeletion.bind(this), Hi);
+      this.editor.registerCommand(ue$2, this.#selectDecoratorNodeBeforeDeletion.bind(this), Hi),
 
-    this.editor.registerCommand(re$2, () => {
-      this.current = $r();
-    }, Hi);
+      this.editor.registerCommand(re$2, () => {
+        this.current = $r();
+      }, Hi)
+    ));
   }
 
   #listenForNodeSelections() {
-    this.editor.registerCommand(oe$4, ({ target }) => {
+    this.#unregister.push(this.editor.registerCommand(oe$4, ({ target }) => {
       if (!As(target)) return false
 
       const targetNode = Do(target);
       return Li(targetNode) && this.#selectInLexical(targetNode)
-    }, Hi);
+    }, Hi));
 
-    this.editor.getRootElement().addEventListener("lexxy:internal:move-to-next-line", (event) => {
-      this.#selectOrAppendNextLine();
-    });
+    const moveNextLineHandler = () => this.#selectOrAppendNextLine();
+    const rootElement = this.editor.getRootElement();
+    rootElement.addEventListener("lexxy:internal:move-to-next-line", moveNextLineHandler);
+    this.#unregister.push(() => rootElement.removeEventListener("lexxy:internal:move-to-next-line", moveNextLineHandler));
   }
 
   #containEditorFocus() {
@@ -9987,9 +10111,12 @@ class ActionTextAttachmentUploadNode extends ActionTextAttachmentNode {
     // node is reloaded from saved state such as from history.
     this.#startUploadIfNeeded();
 
-    const figure = this.createAttachmentFigure();
+    // Bridge-managed uploads (uploadUrl is null) don't have file data to show
+    // an image preview, so always show the file icon during upload.
+    const canPreviewFile = this.isPreviewableAttachment && this.uploadUrl != null;
+    const figure = this.createAttachmentFigure(canPreviewFile);
 
-    if (this.isPreviewableAttachment) {
+    if (canPreviewFile) {
       const img = figure.appendChild(this.#createDOMForImage());
 
       // load file locally to set dimensions and prevent vertical shifting
@@ -10089,6 +10216,7 @@ class ActionTextAttachmentUploadNode extends ActionTextAttachmentNode {
 
   async #startUploadIfNeeded() {
     if (this.#uploadStarted) return
+    if (!this.uploadUrl) return // Bridge-managed upload — skip DirectUpload
 
     this.#setUploadStarted();
 
@@ -10105,7 +10233,9 @@ class ActionTextAttachmentUploadNode extends ActionTextAttachmentNode {
         this.#handleUploadError(error);
       } else {
         this.#dispatchEvent("lexxy:upload-end", { file: this.file, error: null });
-        this.#showUploadedAttachment(blob);
+        this.editor.update(() => {
+          this.showUploadedAttachment(blob);
+        }, { tag: this.#backgroundUpdateTags });
       }
     });
   }
@@ -10149,17 +10279,15 @@ class ActionTextAttachmentUploadNode extends ActionTextAttachmentNode {
     }, { tag: this.#backgroundUpdateTags });
   }
 
-  #showUploadedAttachment(blob) {
-    const editorHasFocus = this.#editorHasFocus;
+  showUploadedAttachment(blob) {
+    const replacementNode = this.#toActionTextAttachmentNodeWith(blob);
+    this.replace(replacementNode);
 
-    this.editor.update(() => {
-      const replacementNode = this.#toActionTextAttachmentNodeWith(blob);
-      this.replace(replacementNode);
+    if (xs(replacementNode.getParent())) {
+      replacementNode.selectNext();
+    }
 
-      if (editorHasFocus && xs(replacementNode.getParent())) {
-        replacementNode.selectNext();
-      }
-    }, { tag: this.#backgroundUpdateTags });
+    return replacementNode.getKey()
   }
 
   // Upload lifecycle methods (progress, completion, errors) run asynchronously and may
@@ -10529,7 +10657,11 @@ class Contents {
   constructor(editorElement) {
     this.editorElement = editorElement;
     this.editor = editorElement.editor;
+  }
 
+  dispose() {
+    this.editorElement = null;
+    this.editor = null;
   }
 
   insertHtml(html, { tag } = {}) {
@@ -10755,6 +10887,53 @@ class Contents {
         this.#normalizeSelectionInShadowRoot();
       }
     });
+  }
+
+  insertPendingAttachment(file) {
+    if (!this.editorElement.supportsAttachments) return null
+
+    let nodeKey = null;
+    this.editor.update(() => {
+      const uploadNode = new ActionTextAttachmentUploadNode({
+        file,
+        uploadUrl: null,
+        blobUrlTemplate: this.editorElement.blobUrlTemplate,
+        editor: this.editor
+      });
+      this.insertAtCursor(uploadNode);
+      nodeKey = uploadNode.getKey();
+    }, { tag: Wn });
+
+    if (!nodeKey) return null
+
+    const editor = this.editor;
+    return {
+      setAttributes(blob) {
+        editor.update(() => {
+          const node = Mo(nodeKey);
+          if (!(node instanceof ActionTextAttachmentUploadNode)) return
+
+          const replacementNodeKey = node.showUploadedAttachment(blob);
+          if (replacementNodeKey) {
+            nodeKey = replacementNodeKey;
+          }
+        }, { tag: Wn });
+      },
+      setUploadProgress(progress) {
+        editor.update(() => {
+          const node = Mo(nodeKey);
+          if (!(node instanceof ActionTextAttachmentUploadNode)) return
+
+          node.getWritable().progress = progress;
+        }, { tag: Wn });
+      },
+      remove() {
+        editor.update(() => {
+          const node = Mo(nodeKey);
+          if (node) node.remove();
+        });
+      }
+    }
   }
 
   replaceNodeWithHTML(nodeKey, html, options = {}) {
@@ -11313,6 +11492,18 @@ class Extensions {
   }
 }
 
+class BrowserAdapter {
+  frozenLinkKey = null
+
+  dispatchAttributesChange(attributes, linkHref, highlight, headingTag) {}
+  dispatchEditorInitialized(detail) {}
+  freeze() {}
+  thaw() {}
+  unlinkFrozenNode() {
+    return false
+  }
+}
+
 // Custom TextNode exportDOM that avoids redundant bold/italic wrapping.
 //
 // Lexical's built-in TextNode.exportDOM() calls createDOM() which produces semantic tags
@@ -11632,11 +11823,12 @@ class TablesExtension extends LexxyExtension {
         ze$1
       ],
       register(editor) {
+        Cn(editor);
+
         return ec(
           // Register Lexical table plugins
           Kn(editor),
           An(editor, true),
-          Cn(editor),
 
           // Bug fix: Prevent hardcoded background color (Lexical #8089)
           editor.registerNodeTransform(Ke$1, (node) => {
@@ -12363,6 +12555,8 @@ class LexicalEditorElement extends HTMLElement {
 
   #initialValue = ""
   #validationTextArea = document.createElement("textarea")
+  #editorInitializedRafId = null
+  #disposables = []
 
   constructor() {
     super();
@@ -12376,15 +12570,23 @@ class LexicalEditorElement extends HTMLElement {
     this.extensions = new Extensions(this);
 
     this.editor = this.#createEditor();
+    this.#disposables.push(this.editor);
 
     this.contents = new Contents(this);
-    this.selection = new Selection(this);
-    this.clipboard = new Clipboard(this);
+    this.#disposables.push(this.contents);
 
-    CommandDispatcher.configureFor(this);
+    this.selection = new Selection(this);
+    this.#disposables.push(this.selection);
+
+    this.clipboard = new Clipboard(this);
+    this.adapter = new BrowserAdapter();
+
+    const commandDispatcher = CommandDispatcher.configureFor(this);
+    this.#disposables.push(commandDispatcher);
+
     this.#initialize();
 
-    requestAnimationFrame(() => dispatch(this, "lexxy:initialize"));
+    this.#scheduleEditorInitializedDispatch();
     this.toggleAttribute("connected", true);
 
     this.#handleAutofocus();
@@ -12393,6 +12595,7 @@ class LexicalEditorElement extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.#cancelEditorInitializedDispatch();
     this.valueBeforeDisconnect = this.value;
     this.#reset(); // Prevent hangs with Safari when morphing
   }
@@ -12434,7 +12637,7 @@ class LexicalEditorElement extends HTMLElement {
   get toolbarElement() {
     if (!this.#hasToolbar) return null
 
-    this.toolbar = this.toolbar || this.#findOrCreateDefaultToolbar();
+    this.toolbar ??= this.#findOrCreateDefaultToolbar();
     return this.toolbar
   }
 
@@ -12487,6 +12690,32 @@ class LexicalEditorElement extends HTMLElement {
 
   get supportsRichText() {
     return this.config.get("richText")
+  }
+
+  registerAdapter(adapter) {
+    this.adapter = adapter;
+
+    if (!this.editor) return
+
+    this.#cancelEditorInitializedDispatch();
+    this.#dispatchEditorInitialized();
+    this.#dispatchAttributesChange();
+  }
+
+  freezeSelection() {
+    this.adapter.freeze();
+  }
+
+  thawSelection() {
+    this.adapter.thaw();
+  }
+
+  dispatchAttributesChange() {
+    this.#dispatchAttributesChange();
+  }
+
+  dispatchEditorInitialized() {
+    this.#dispatchEditorInitialized();
   }
 
   // TODO: Deprecate `single-line` attribute
@@ -12570,6 +12799,7 @@ class LexicalEditorElement extends HTMLElement {
 
   #createEditor() {
     this.editorContentElement ||= this.#createEditorContentElement();
+    this.appendChild(this.editorContentElement);
 
     const editor = Qt$2({
       name: "lexxy/core",
@@ -12612,6 +12842,7 @@ class LexicalEditorElement extends HTMLElement {
     const editorContentElement = createElement("div", {
       classList: "lexxy-editor__content",
       contenteditable: true,
+      autocapitalize: "none",
       role: "textbox",
       "aria-multiline": true,
       "aria-label": this.#labelText,
@@ -12619,7 +12850,6 @@ class LexicalEditorElement extends HTMLElement {
     });
     editorContentElement.id = `${this.id}-content`;
     this.#ariaAttributes.forEach(attribute => editorContentElement.setAttribute(attribute.name, attribute.value));
-    this.appendChild(editorContentElement);
 
     if (this.getAttribute("tabindex")) {
       editorContentElement.setAttribute("tabindex", this.getAttribute("tabindex"));
@@ -12674,6 +12904,7 @@ class LexicalEditorElement extends HTMLElement {
       this.#internalFormValue = this.value;
       this.#toggleEmptyStatus();
       this.#setValidity();
+      this.#dispatchAttributesChange();
     }));
   }
 
@@ -12695,36 +12926,48 @@ class LexicalEditorElement extends HTMLElement {
   }
 
   #registerComponents() {
+    const registered = [];
+
     if (this.supportsRichText) {
-      Jt$2(this.editor);
-      Le$2(this.editor);
+      registered.push(
+        Jt$2(this.editor),
+        Le$2(this.editor)
+      );
       this.#registerTableComponents();
       this.#registerCodeHiglightingComponents();
       if (this.supportsMarkdown) {
-        Yt$1(this.editor, Jt$1);
-        registerMarkdownLeadingTagHandler(this.editor, Jt$1);
+          registered.push(
+            Yt$1(this.editor, Jt$1),
+            registerMarkdownLeadingTagHandler(this.editor, Jt$1)
+        );
       }
     } else {
-      z$1(this.editor);
+      registered.push(z$1(this.editor));
     }
     this.historyState = H();
-    E$1(this.editor, this.historyState, 20);
+    registered.push(E$1(this.editor, this.historyState, 20));
+
+    this.#addUnregisterHandler(ec(...registered));
   }
 
   #registerTableComponents() {
-    this.tableTools = createElement("lexxy-table-tools");
-    this.append(this.tableTools);
+    let tableTools = this.querySelector("lexxy-table-tools");
+    tableTools ??= createElement("lexxy-table-tools");
+    this.append(tableTools);
+    this.#disposables.push(tableTools);
   }
 
   #registerCodeHiglightingComponents() {
     zt$2(this.editor);
-    this.codeLanguagePicker = createElement("lexxy-code-language-picker");
-    this.append(this.codeLanguagePicker);
+    let codeLanguagePicker = this.querySelector("lexxy-code-language-picker");
+    codeLanguagePicker ??= createElement("lexxy-code-language-picker");
+    this.append(codeLanguagePicker);
+    this.#disposables.push(codeLanguagePicker);
   }
 
   #handleEnter() {
     // We can't prevent these externally using regular keydown because Lexical handles it first.
-    this.editor.registerCommand(
+    this.#addUnregisterHandler(this.editor.registerCommand(
       Ee$2,
       (event) => {
         // Prevent CTRL+ENTER
@@ -12742,16 +12985,22 @@ class LexicalEditorElement extends HTMLElement {
         return false
       },
       Gi
-    );
+    ));
   }
 
   #registerFocusEvents() {
     this.addEventListener("focusin", this.#handleFocusIn);
     this.addEventListener("focusout", this.#handleFocusOut);
+
+    this.#addUnregisterHandler(() => {
+      this.removeEventListener("focusin", this.#handleFocusIn);
+      this.removeEventListener("focusout", this.#handleFocusOut);
+    });
   }
 
   #handleFocusIn(event) {
     if (this.#elementInEditorOrToolbar(event.target) && !this.currentlyFocused) {
+      this.#dispatchAttributesChange();
       dispatch(this, "lexxy:focus");
       this.currentlyFocused = true;
     }
@@ -12790,6 +13039,10 @@ class LexicalEditorElement extends HTMLElement {
   #attachToolbar() {
     if (this.#hasToolbar) {
       this.toolbarElement.setEditor(this);
+      if (typeof this.toolbarElement.dispose === "function") {
+        this.#disposables.push(this.toolbarElement);
+      }
+
       this.extensions.initializeToolbars();
     }
   }
@@ -12799,7 +13052,7 @@ class LexicalEditorElement extends HTMLElement {
     if (typeof toolbarConfig === "string") {
       return document.getElementById(toolbarConfig)
     } else {
-      return this.#createDefaultToolbar()
+      return this.querySelector("lexxy-toolbar") ?? this.#createDefaultToolbar()
     }
   }
 
@@ -12828,35 +13081,129 @@ class LexicalEditorElement extends HTMLElement {
     }
   }
 
+  #dispatchAttributesChange() {
+    let attributes = null;
+    let linkHref = null;
+    let highlight = null;
+    let headingTag = null;
+
+    this.editor.getEditorState().read(() => {
+      const selection = $r();
+      if (!wr(selection)) return
+
+      const format = this.selection.getFormat();
+      if (Object.keys(format).length === 0) return
+
+      const anchorNode = selection.anchor.getNode();
+      const linkNode = vt$4(anchorNode, E$3);
+
+      attributes = {
+        bold: { active: format.isBold, enabled: true },
+        italic: { active: format.isItalic, enabled: true },
+        strikethrough: { active: format.isStrikethrough, enabled: true },
+        code: { active: format.isInCode, enabled: true },
+        highlight: { active: format.isHighlight, enabled: true },
+        link: { active: format.isInLink, enabled: true },
+        quote: { active: format.isInQuote, enabled: true },
+        heading: { active: format.isInHeading, enabled: true },
+        "unordered-list": { active: format.isInList && format.listType === "bullet", enabled: true },
+        "ordered-list": { active: format.isInList && format.listType === "number", enabled: true },
+        undo: { active: false, enabled: this.historyState?.undoStack.length > 0 },
+        redo: { active: false, enabled: this.historyState?.redoStack.length > 0 }
+      };
+
+      linkHref = linkNode ? linkNode.getURL() : null;
+      highlight = format.isHighlight ? getHighlightStyles(selection) : null;
+      headingTag = format.headingTag ?? null;
+    });
+
+    if (attributes) {
+      this.adapter.dispatchAttributesChange(attributes, linkHref, highlight, headingTag);
+    }
+  }
+
+  #dispatchEditorInitialized() {
+    if (!this.adapter) return
+
+    this.adapter.dispatchEditorInitialized({
+      highlightColors: this.#resolvedHighlightColors,
+      headingFormats: this.#supportedHeadingFormats
+    });
+  }
+
+  #scheduleEditorInitializedDispatch() {
+    this.#cancelEditorInitializedDispatch();
+    this.#editorInitializedRafId = requestAnimationFrame(() => {
+      this.#editorInitializedRafId = null;
+      if (!this.isConnected || !this.adapter) return
+
+      dispatch(this, "lexxy:initialize");
+      this.#dispatchEditorInitialized();
+    });
+  }
+
+  #cancelEditorInitializedDispatch() {
+    if (this.#editorInitializedRafId == null) return
+
+    cancelAnimationFrame(this.#editorInitializedRafId);
+    this.#editorInitializedRafId = null;
+  }
+
+  get #resolvedHighlightColors() {
+    const buttons = this.config.get("highlight.buttons");
+    if (!buttons) return null
+
+    const colors = this.#resolveColors("color", buttons.color || []);
+    const backgroundColors = this.#resolveColors("background-color", buttons["background-color"] || []);
+    return { colors, backgroundColors }
+  }
+
+  get #supportedHeadingFormats() {
+    if (!this.supportsRichText) return []
+
+    return [
+      { label: "Normal", command: "setFormatParagraph", tag: null },
+      { label: "Large heading", command: "setFormatHeadingLarge", tag: "h2" },
+      { label: "Medium heading", command: "setFormatHeadingMedium", tag: "h3" },
+      { label: "Small heading", command: "setFormatHeadingSmall", tag: "h4" },
+    ]
+  }
+
+  #resolveColors(property, cssValues) {
+    const resolver = document.createElement("span");
+    resolver.style.display = "none";
+    this.appendChild(resolver);
+
+    const resolved = cssValues.map(cssValue => {
+      resolver.style.setProperty(property, cssValue);
+      const value = window.getComputedStyle(resolver).getPropertyValue(property);
+      resolver.style.removeProperty(property);
+      return { name: cssValue, value }
+    });
+
+    resolver.remove();
+    return resolved
+  }
+
   #reset() {
+    this.#cancelEditorInitializedDispatch();
+    this.#dispose();
+    this.editorContentElement?.remove();
+    this.editorContentElement = null;
+
+    // Prevents issues with turbo morphing receiving an empty <lexxy-editor> which wipes
+    // out the DOM for the tools, and the old toolbar reference will cause issues
+    this.toolbar = null;
+  }
+
+  #dispose() {
     this.#unregisterHandlers();
-
-    if (this.editorContentElement) {
-      this.editorContentElement.remove();
-      this.editorContentElement = null;
-    }
-
-    this.contents = null;
-    this.editor = null;
-
-    if (this.toolbar) {
-      if (!this.getAttribute("toolbar")) { this.toolbar.remove(); }
-      this.toolbar = null;
-    }
-
-    if (this.codeLanguagePicker) {
-      this.codeLanguagePicker.remove();
-      this.codeLanguagePicker = null;
-    }
-
-    if (this.tableHandler) {
-      this.tableHandler.remove();
-      this.tableHandler = null;
-    }
-
-    this.selection = null;
-
+    this.adapter = null;
     document.removeEventListener("turbo:before-cache", this.#handleTurboBeforeCache);
+
+    while (this.#disposables.length) {
+      this.#disposables.pop().dispose();
+    }
   }
 
   #reconnect() {
@@ -12897,14 +13244,15 @@ class ToolbarDropdown extends HTMLElement {
   connectedCallback() {
     this.container = this.closest("details");
 
-    this.container.addEventListener("toggle", this.#handleToggle.bind(this));
-    this.container.addEventListener("keydown", this.#handleKeyDown.bind(this));
+    this.container.addEventListener("toggle", this.#handleToggle);
+    this.container.addEventListener("keydown", this.#handleKeyDown);
 
     this.#onToolbarEditor(this.initialize.bind(this));
   }
 
   disconnectedCallback() {
-    this.container.removeEventListener("keydown", this.#handleKeyDown.bind(this));
+    this.container?.removeEventListener("toggle", this.#handleToggle);
+    this.container?.removeEventListener("keydown", this.#handleKeyDown);
   }
 
   get toolbar() {
@@ -12929,11 +13277,11 @@ class ToolbarDropdown extends HTMLElement {
   }
 
   async #onToolbarEditor(callback) {
-    await this.toolbar.editorConnected;
+    await this.toolbar.editorElement;
     callback();
   }
 
-  #handleToggle() {
+  #handleToggle = () => {
     if (this.container.open) {
       this.#handleOpen();
     }
@@ -12944,7 +13292,7 @@ class ToolbarDropdown extends HTMLElement {
     this.#resetTabIndexValues();
   }
 
-  #handleKeyDown(event) {
+  #handleKeyDown = (event) => {
     if (event.key === "Escape") {
       event.stopPropagation();
       this.close();
@@ -12972,27 +13320,30 @@ class LinkDropdown extends ToolbarDropdown {
     super.connectedCallback();
     this.input = this.querySelector("input");
 
-    this.#registerHandlers();
+    this.container.addEventListener("toggle", this.#handleToggle);
+    this.addEventListener("submit", this.#handleSubmit);
+    this.querySelector("[value='unlink']").addEventListener("click", this.#handleUnlink);
   }
 
-  #registerHandlers() {
-    this.container.addEventListener("toggle", this.#handleToggle.bind(this));
-    this.addEventListener("submit", this.#handleSubmit.bind(this));
-    this.querySelector("[value='unlink']").addEventListener("click", this.#handleUnlink.bind(this));
+  disconnectedCallback() {
+    this.container?.removeEventListener("toggle", this.#handleToggle);
+    this.removeEventListener("submit", this.#handleSubmit);
+    this.querySelector("[value='unlink']")?.removeEventListener("click", this.#handleUnlink);
+    super.disconnectedCallback();
   }
 
-  #handleToggle({ newState }) {
+  #handleToggle = ({ newState }) => {
     this.input.value = this.#selectedLinkUrl;
     this.input.required = newState === "open";
   }
 
-  #handleSubmit(event) {
+  #handleSubmit = (event) => {
     const command = event.submitter?.value;
     this.editor.dispatchCommand(command, this.input.value);
     this.close();
   }
 
-  #handleUnlink() {
+  #handleUnlink = () => {
     this.editor.dispatchCommand("unlink");
     this.close();
   }
@@ -13027,26 +13378,35 @@ const REMOVE_HIGHLIGHT_SELECTOR = "[data-command='removeHighlight']";
 const NO_STYLE = Symbol("no_style");
 
 class HighlightDropdown extends ToolbarDropdown {
-  connectedCallback() {
-    super.connectedCallback();
-    this.#registerToggleHandler();
-  }
-
   initialize() {
     this.#setUpButtons();
     this.#registerButtonHandlers();
   }
 
-  #registerToggleHandler() {
-    this.container.addEventListener("toggle", this.#handleToggle.bind(this));
+  connectedCallback() {
+    super.connectedCallback();
+    this.container.addEventListener("toggle", this.#handleToggle);
+  }
+
+  disconnectedCallback() {
+    this.container?.removeEventListener("toggle", this.#handleToggle);
+    this.#removeButtonHandlers();
+    super.disconnectedCallback();
   }
 
   #registerButtonHandlers() {
-    this.#colorButtons.forEach(button => button.addEventListener("click", this.#handleColorButtonClick.bind(this)));
-    this.querySelector(REMOVE_HIGHLIGHT_SELECTOR).addEventListener("click", this.#handleRemoveHighlightClick.bind(this));
+    this.#colorButtons.forEach(button => button.addEventListener("click", this.#handleColorButtonClick));
+    this.querySelector(REMOVE_HIGHLIGHT_SELECTOR).addEventListener("click", this.#handleRemoveHighlightClick);
+  }
+
+  #removeButtonHandlers() {
+    this.#colorButtons.forEach(button => button.removeEventListener("click", this.#handleColorButtonClick));
+    this.querySelector(REMOVE_HIGHLIGHT_SELECTOR)?.removeEventListener("click", this.#handleRemoveHighlightClick);
   }
 
   #setUpButtons() {
+    this.#buttonContainer.innerHTML = "";
+
     const colorGroups = this.editorElement.config.get("highlight.buttons");
 
     this.#populateButtonGroup("color", colorGroups.color);
@@ -13072,7 +13432,7 @@ class HighlightDropdown extends ToolbarDropdown {
     return button
   }
 
-  #handleToggle({ newState }) {
+  #handleToggle = ({ newState }) => {
     if (newState === "open") {
       this.editor.getEditorState().read(() => {
         this.#updateColorButtonStates($r());
@@ -13080,7 +13440,7 @@ class HighlightDropdown extends ToolbarDropdown {
     }
   }
 
-  #handleColorButtonClick(event) {
+  #handleColorButtonClick = (event) => {
     event.preventDefault();
 
     const button = event.target.closest(APPLY_HIGHLIGHT_SELECTOR);
@@ -13093,7 +13453,7 @@ class HighlightDropdown extends ToolbarDropdown {
     this.close();
   }
 
-  #handleRemoveHighlightClick(event) {
+  #handleRemoveHighlightClick = (event) => {
     event.preventDefault();
 
     this.editor.dispatchCommand("removeHighlight");
@@ -13744,10 +14104,13 @@ class LexicalPromptElement extends HTMLElement {
 }
 
 class CodeLanguagePicker extends HTMLElement {
+  #abortController = null
+
   connectedCallback() {
     this.editorElement = this.closest("lexxy-editor");
     this.editor = this.editorElement.editor;
     this.classList.add("lexxy-floating-controls");
+    this.#abortController = new AbortController();
 
     this.#attachLanguagePicker();
     this.#hide();
@@ -13755,19 +14118,35 @@ class CodeLanguagePicker extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.dispose();
+  }
+
+  dispose() {
+    this.#abortController?.abort();
+    this.#abortController = null;
     this.unregisterUpdateListener?.();
     this.unregisterUpdateListener = null;
   }
 
   #attachLanguagePicker() {
-    this.languagePickerElement = this.#createLanguagePicker();
+    this.languagePickerElement = this.#findLanguagePicker() ?? this.#createLanguagePicker();
+
+    const signal = this.#abortController.signal;
 
     this.languagePickerElement.addEventListener("change", () => {
       this.#updateCodeBlockLanguage(this.languagePickerElement.value);
-    });
+    }, { signal });
+
+    this.languagePickerElement.addEventListener("mousedown", (event) => {
+      this.#dispatchOpenEvent(event);
+    }, { signal });
 
     this.languagePickerElement.setAttribute("nonce", getNonce());
     this.appendChild(this.languagePickerElement);
+  }
+
+  #findLanguagePicker() {
+    return this.querySelector("select")
   }
 
   #createLanguagePicker() {
@@ -13800,6 +14179,21 @@ class CodeLanguagePicker extends HTMLElement {
     const plainIndex = sortedEntries.findIndex(([ key ]) => key === "plain");
     const plainEntry = sortedEntries.splice(plainIndex, 1)[0];
     return Object.fromEntries([ plainEntry, ...sortedEntries ])
+  }
+
+  #dispatchOpenEvent(event) {
+    const handled = !dispatch(this.editorElement, "lexxy:code-language-picker-open", {
+      languages: this.#bridgeLanguages,
+      currentLanguage: this.languagePickerElement.value
+    }, true);
+
+    if (handled) {
+      event.preventDefault();
+    }
+  }
+
+  get #bridgeLanguages() {
+    return Object.entries(this.#languages).map(([ key, name ]) => ({ key, name }))
   }
 
   #updateCodeBlockLanguage(language) {
@@ -14340,6 +14734,10 @@ class TableTools extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.dispose();
+  }
+
+  dispose() {
     this.#unregisterKeyboardShortcuts();
 
     this.unregisterUpdateListener?.();
@@ -14364,6 +14762,8 @@ class TableTools extends HTMLElement {
   }
 
   #setUpButtons() {
+    this.innerHTML = "";
+
     this.appendChild(this.#createRowButtonsContainer());
     this.appendChild(this.#createColumnButtonsContainer());
 
@@ -14791,10 +15191,108 @@ function collectTextNodes(root) {
   return nodes
 }
 
+class NativeAdapter {
+  frozenLinkKey = null
+
+  constructor(editorElement) {
+    this.editorElement = editorElement;
+    this.editorContentElement = editorElement.editorContentElement;
+  }
+
+  dispatchAttributesChange(attributes, linkHref, highlight, headingTag) {
+    dispatch(this.editorElement, "lexxy:attributes-change", {
+      attributes,
+      link: linkHref ? { href: linkHref } : null,
+      highlight,
+      headingTag
+    });
+  }
+
+  dispatchEditorInitialized(detail) {
+    dispatch(this.editorElement, "lexxy:editor-initialized", detail);
+  }
+
+  freeze() {
+    let frozenLinkKey = null;
+    this.editorElement.editor?.getEditorState().read(() => {
+      const selection = $r();
+      if (!wr(selection)) return
+
+      const linkNode = vt$4(selection.anchor.getNode(), E$3);
+      if (linkNode) {
+        frozenLinkKey = linkNode.getKey();
+      }
+    });
+
+    this.frozenLinkKey = frozenLinkKey;
+    this.editorContentElement.contentEditable = "false";
+  }
+
+  thaw() {
+    this.editorContentElement.contentEditable = "true";
+  }
+
+  unlinkFrozenNode() {
+    const key = this.frozenLinkKey;
+    if (!key) return false
+
+    const linkNode = Mo(key);
+    if (!B$2(linkNode)) {
+      this.frozenLinkKey = null;
+      return false
+    }
+
+    const children = linkNode.getChildren();
+    for (const child of children) {
+      linkNode.insertBefore(child);
+    }
+    linkNode.remove();
+
+    // Select the former link text so a follow-up createLink can re-wrap it.
+    const firstText = this.#findFirstTextDescendant(children);
+    const lastText = this.#findLastTextDescendant(children);
+    if (firstText && lastText) {
+      const selection = $r();
+      if (wr(selection)) {
+        selection.anchor.set(firstText.getKey(), 0, "text");
+        selection.focus.set(lastText.getKey(), lastText.getTextContent().length, "text");
+      }
+    }
+
+    this.frozenLinkKey = null;
+    return true
+  }
+
+  #findFirstTextDescendant(nodes) {
+    for (const node of nodes) {
+      if (yr(node)) return node
+      if (Pi(node)) {
+        const nestedTextNode = this.#findFirstTextDescendant(node.getChildren());
+        if (nestedTextNode) return nestedTextNode
+      }
+    }
+
+    return null
+  }
+
+  #findLastTextDescendant(nodes) {
+    for (let index = nodes.length - 1; index >= 0; index--) {
+      const node = nodes[index];
+      if (yr(node)) return node
+      if (Pi(node)) {
+        const nestedTextNode = this.#findLastTextDescendant(node.getChildren());
+        if (nestedTextNode) return nestedTextNode
+      }
+    }
+
+    return null
+  }
+}
+
 const configure = Lexxy.configure;
 
 // Pushing elements definition to after the current call stack to allow global configuration to take place first
 setTimeout(defineElements, 0);
 
-export { $createActionTextAttachmentNode, $createActionTextAttachmentUploadNode, $isActionTextAttachmentNode, ActionTextAttachmentNode, ActionTextAttachmentUploadNode, CustomActionTextAttachmentNode, LexxyExtension as Extension, HorizontalDividerNode, configure, highlightCode as highlightAll, highlightCode };
+export { $createActionTextAttachmentNode, $createActionTextAttachmentUploadNode, $isActionTextAttachmentNode, ActionTextAttachmentNode, ActionTextAttachmentUploadNode, CustomActionTextAttachmentNode, LexxyExtension as Extension, HorizontalDividerNode, NativeAdapter, configure, highlightCode as highlightAll, highlightCode };
 //# sourceMappingURL=lexxy.js.map

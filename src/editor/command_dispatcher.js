@@ -6,6 +6,7 @@ import {
   $setSelection,
   COMMAND_PRIORITY_LOW,
   COMMAND_PRIORITY_NORMAL,
+  FORMAT_ELEMENT_COMMAND,
   FORMAT_TEXT_COMMAND,
   INDENT_CONTENT_COMMAND,
   KEY_ARROW_RIGHT_COMMAND,
@@ -48,6 +49,11 @@ const COMMANDS = [
   "uploadFile",
 
   "insertTable",
+
+  "alignLeft",
+  "alignCenter",
+  "alignRight",
+  "alignJustify",
 
   "undo",
   "redo"
@@ -278,6 +284,22 @@ export class CommandDispatcher {
 
   dispatchInsertTable() {
     this.editor.dispatchCommand(INSERT_TABLE_COMMAND, { "rows": 3, "columns": 3, "includeHeaders": true })
+  }
+
+  dispatchAlignLeft() {
+    this.editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, "left")
+  }
+
+  dispatchAlignCenter() {
+    this.editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, "center")
+  }
+
+  dispatchAlignRight() {
+    this.editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, "right")
+  }
+
+  dispatchAlignJustify() {
+    this.editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, "justify")
   }
 
   dispatchUndo() {

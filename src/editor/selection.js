@@ -143,7 +143,8 @@ export default class Selection {
       headingTag: headingNode?.getTag() ?? null,
       isInList: listType !== null,
       listType,
-      isInTable: $getTableCellNodeFromLexicalNode(anchorNode) !== null
+      isInTable: $getTableCellNodeFromLexicalNode(anchorNode) !== null,
+      paragraphAlignment: topLevelElement?.getFormatType() ?? ""
     }
   }
 

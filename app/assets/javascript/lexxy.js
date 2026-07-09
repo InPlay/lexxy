@@ -4685,7 +4685,7 @@ const ALLOWED_HTML_ATTRIBUTES = [ "alt", "caption", "class", "content", "content
   "data-direct-upload-id", "data-sgid", "filename", "filesize", "height", "href", "presentation",
   "previewable", "sgid", "src", "style", "title", "url", "width" ];
 
-const ALLOWED_STYLE_PROPERTIES = [ "color", "background-color" ];
+const ALLOWED_STYLE_PROPERTIES = [ "color", "background-color", "text-align" ];
 
 function styleFilterHook(_currentNode, hookEvent) {
   if (hookEvent.attrName === "style" && hookEvent.attrValue) {
@@ -9011,39 +9011,13 @@ class ActionTextAttachmentNode extends Fi {
     captionBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-
-      const captionDisplay = figure.querySelector(".attachment__caption--display");
-      if (!captionDisplay) return
-
       let currentCaption = "";
       this.editor.getEditorState().read(() => { currentCaption = this.getLatest().caption; });
-
-      const input = createElement("input", { type: "text", className: "attachment__caption-input" });
-      input.value = currentCaption;
-      input.placeholder = "Add caption…";
-
-      let committed = false;
-      const commit = () => {
-        if (committed) return
-        committed = true;
-        const newCaption = input.value;
-        captionDisplay.style.display = "";
-        input.remove();
-        this.editor.update(() => {
-          this.getLatest().getWritable().caption = newCaption;
-        }, { discrete: true });
-      };
-
-      input.addEventListener("keydown", (ev) => {
-        ev.stopPropagation();
-        if (ev.key === "Enter") { ev.preventDefault(); commit(); }
-        if (ev.key === "Escape") { captionDisplay.style.display = ""; input.remove(); }
-      });
-      input.addEventListener("blur", commit);
-
-      captionDisplay.style.display = "none";
-      captionDisplay.after(input);
-      input.focus({ preventScroll: true });
+      const result = prompt("Caption", currentCaption);
+      if (result === null) return
+      this.editor.update(() => {
+        this.getLatest().getWritable().caption = result;
+      }, { discrete: true });
     });
 
     group.appendChild(captionBtn);

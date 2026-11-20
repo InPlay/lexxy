@@ -10,7 +10,9 @@
 /test/dummy/tmp/
 /dist/
 /node_modules/
-/app/assets/javascript/
+/app/assets/javascript/*
+!/app/assets/javascript/lexxy.js
+!/app/assets/javascript/lexxy.js.map
 
 # Claude Code
 /.claude/worktrees/

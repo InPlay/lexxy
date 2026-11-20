@@ -24396,7 +24396,7 @@ class AttachmentLayoutExtension extends LexxyExtension {
       handle.addEventListener("pointerup", () => {
         drag.abort();
         if (width) {
-          resizeAttachment(editor, key, width);
+          resizeAttachment(editor, key, image.offsetWidth);
         }
       }, { signal: drag.signal });
 
@@ -24420,7 +24420,12 @@ class AttachmentLayoutExtension extends LexxyExtension {
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        editor.update(() => wn$1(Bs(key), alignmentState, alignment), { discrete: true });
+        editor.update(() => {
+          const node = Bs(key);
+          if (Tn(node, alignmentState) !== alignment) {
+            wn$1(node, alignmentState, alignment);
+          }
+        }, { discrete: true });
       }, { signal: this.#domListeners.signal });
 
       group.append(button);

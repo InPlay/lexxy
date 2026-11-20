@@ -34,12 +34,12 @@ InPlay's server must also allow `data-alignment` on attachments (`ActionText::Co
 
 A rebase rewrites every commit on the branch, and InPlay's `Gemfile.lock` pins one of those commits by sha. Bundler can only check out a pinned sha that a branch on this remote still contains, so never amend, force-push or delete a branch holding a pinned sha. Each pull goes to a new branch instead:
 
-1. `git fetch origin upstream`, then `git checkout -b inplay-extensions-<yyyy-mm-dd> origin/<branch>`, where `<branch>` is the one InPlay's Gemfile names now.
+1. Add basecamp/lexxy as the `upstream` remote if the clone lacks it (`git remote add upstream https://github.com/basecamp/lexxy.git`). Run `git fetch --multiple origin upstream`, then `git checkout -b inplay-extensions-<yyyy-mm-dd> origin/<branch>`, where `<branch>` is the one InPlay's Gemfile names now.
 2. `git rebase upstream/main`, dropping the old build commit (`git rebase -i` and `drop`, or resolve its conflict by deleting both built files).
 3. `yarn install && yarn build`, then commit `app/assets/javascript/lexxy.js` and `lexxy.js.map` as a new build commit.
 4. Update the upstream sha and the node and yarn versions in this file, and commit.
 5. `git push -u origin inplay-extensions-<yyyy-mm-dd>`.
 6. In InPlay, point the Gemfile's `branch:` at the new branch and run `bundle update lexxy`.
-7. In InPlay, re-run the catalog render snapshot and `spec/acceptance/oscar/admin_manages_catalog_pages_spec.rb`.
+7. In InPlay, run `lib/scripts/catalog_render_snapshot.rb` with `before` on the old lockfile and `after` on the new one, as its header shows; `diff -r` of the two directories must be empty. Then run `spec/acceptance/oscar/admin_manages_catalog_pages_spec.rb`.
 
 A rebuild without a rebase (for example after changing an extension) is a new build commit on the current branch, pushed normally.

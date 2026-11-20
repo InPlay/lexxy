@@ -28,11 +28,12 @@ function exportedAttachment(n) {
 }
 
 test("an image keeps its alignment and width, and one without an alignment saves as centered", async () => {
-  editorElement = await createTestEditor({ value: `${image(1, 'width="300" data-alignment="left"')}<p>Text</p>${image(2)}` })
+  editorElement = await createTestEditor({ value: `${image(1, 'width="300" data-alignment="left"')}<p>Text</p>${image(2)}<p>Text</p>${image(3, 'content="" data-alignment="right"')}` })
 
   expect(exportedAttachment(1).getAttribute("data-alignment")).toBe("left")
   expect(exportedAttachment(1).getAttribute("width")).toBe("300")
   expect(exportedAttachment(2).getAttribute("data-alignment")).toBe("center")
+  expect(exportedAttachment(3).getAttribute("data-alignment")).toBe("right")
 })
 
 test("an image in a gallery saves no alignment", async () => {

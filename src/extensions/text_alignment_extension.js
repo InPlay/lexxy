@@ -39,7 +39,9 @@ export class TextAlignmentExtension extends LexxyExtension {
     const alignment = $blockAlignment(selection.anchor.getNode())
     for (const value of ALIGNMENTS) {
       const button = this.editorElement.toolbar?.querySelector(`[name="align-${value}"]`)
-      if (button) button.ariaPressed = value === alignment
+      if (button) {
+        button.ariaPressed = value === alignment
+      }
     }
   }
 }

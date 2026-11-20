@@ -64,7 +64,7 @@ export class AttachmentLayoutExtension extends LexxyExtension {
   #layOutAttachment(editor, figure, node) {
     const image = figure.querySelector(".attachment__container > img")
 
-    if (image && node.isPreviewableImage && !$isImageGalleryNode(node.getParent())) {
+    if (image && node.isPreviewableAttachment && !$isImageGalleryNode(node.getParent())) {
       this.#decorate(editor, figure, image, node)
     } else {
       undecorate(figure, image)

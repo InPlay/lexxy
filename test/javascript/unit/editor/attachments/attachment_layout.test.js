@@ -43,3 +43,11 @@ test("an image in a gallery saves no alignment", async () => {
   expect(exportedAttachment(1).hasAttribute("data-alignment")).toBe(false)
   expect(exportedAttachment(2).hasAttribute("data-alignment")).toBe(false)
 })
+
+test("an image and a previewable file outside a gallery get resize and alignment controls", async () => {
+  const pdf = `<action-text-attachment sgid="sgid2" content-type="application/pdf" url="https://example.com/2.png" filename="2.pdf" previewable="true"></action-text-attachment>`
+  editorElement = await createTestEditor({ value: `${image(1)}<p>Text</p>${pdf}` })
+
+  expect(editorElement.querySelectorAll(".attachment__alignment-controls")).toHaveLength(2)
+  expect(editorElement.querySelectorAll(".attachment__resize-handle")).toHaveLength(2)
+})

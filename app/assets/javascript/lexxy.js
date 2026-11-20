@@ -11337,7 +11337,7 @@ class ActionTextAttachmentNode extends ri {
   }
 
   static importJSON(serializedNode) {
-    return new ActionTextAttachmentNode({ ...serializedNode })
+    return new ActionTextAttachmentNode({ ...serializedNode }).updateFromJSON(serializedNode)
   }
 
   static importDOM() {
@@ -11497,6 +11497,7 @@ class ActionTextAttachmentNode extends ri {
 
   exportJSON() {
     return {
+      ...super.exportJSON(),
       type: "action_text_attachment",
       version: 1,
       sgid: this.sgid,

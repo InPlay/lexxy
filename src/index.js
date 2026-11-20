@@ -22,6 +22,8 @@ export function configure(config) {
   configured = true
 }
 export { default as Extension } from "./extensions/lexxy_extension"
+export { TextAlignmentExtension } from "./extensions/text_alignment_extension"
+export { AttachmentLayoutExtension } from "./extensions/attachment_layout_extension"
 export * as Lexical from "lexical"
 
 // Define the elements after the current call stack, so a configure() call right after the import comes first. When

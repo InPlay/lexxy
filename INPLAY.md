@@ -15,16 +15,15 @@ The branch was cut from upstream `main` at `75cc141d4aa074d759196765ca227ba98c5c
 
 ## How InPlay registers the extensions
 
-InPlay imports `lexxy.js` from one URL and calls `configure` once, in the same module:
+InPlay imports `lexxy.js` from its digested asset URL, so the page has one instance of the module, and calls `configure` once, in the same module:
 
 ```js
-import { configure, TextAlignmentExtension, AttachmentLayoutExtension } from "lexxy"
+import { configure, TextAlignmentExtension, AttachmentLayoutExtension } from "/assets/lexxy-<digest>.js"
 
-configure({
-  global: { extensions: [ TextAlignmentExtension, AttachmentLayoutExtension ] },
-  default: { headings: [ "h1", "h2", "h3" ] }
-})
+configure({ global: { extensions: [ TextAlignmentExtension, AttachmentLayoutExtension ] } })
 ```
+
+It keeps upstream's default headings (`h2`, `h3`, `h4`): InPlay's format select labels them H1, H2 and H3, as its old editor did.
 
 `configure` replaces arrays rather than appending to them, so a second call with `extensions` would drop the first call's list.
 
@@ -35,11 +34,11 @@ InPlay's server must also allow `data-alignment` on attachments (`ActionText::Co
 A rebase rewrites every commit on the branch, and InPlay's `Gemfile.lock` pins one of those commits by sha. Bundler can only check out a pinned sha that a branch on this remote still contains, so never amend, force-push or delete a branch holding a pinned sha. Each pull goes to a new branch instead:
 
 1. Add basecamp/lexxy as the `upstream` remote if the clone lacks it (`git remote add upstream https://github.com/basecamp/lexxy.git`). Run `git fetch --multiple origin upstream`, then `git checkout -b inplay-extensions-<yyyy-mm-dd> origin/<branch>`, where `<branch>` is the one InPlay's Gemfile names now.
-2. `git rebase upstream/main`, dropping the old build commit (`git rebase -i` and `drop`, or resolve its conflict by deleting both built files).
+2. `git rebase upstream/main`. Keep every commit: upstream ignores the built files, so the build commits replay without conflicts, and the first of them also carries the `.gitignore` exception that lets the built files be committed. Step 3 replaces their stale output.
 3. `yarn install && yarn build`, then commit `app/assets/javascript/lexxy.js` and `lexxy.js.map` as a new build commit.
 4. Update the upstream sha and the node and yarn versions in this file, and commit.
 5. `git push -u origin inplay-extensions-<yyyy-mm-dd>`.
-6. In InPlay, point the Gemfile's `branch:` at the new branch and run `bundle update lexxy`.
+6. In InPlay, point the Gemfile's `branch:` at the new branch and run `bundle update lexxy --conservative`, so only the lexxy entry in `Gemfile.lock` changes.
 7. In InPlay, run `lib/scripts/catalog_render_snapshot.rb` with `before` on the old lockfile and `after` on the new one, as its header shows; `diff -r` of the two directories must be empty. Then run `spec/acceptance/oscar/admin_manages_catalog_pages_spec.rb`.
 
 A rebuild without a rebase (for example after changing an extension) is a new build commit on the current branch, pushed normally.

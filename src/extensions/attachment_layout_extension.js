@@ -120,7 +120,7 @@ export class AttachmentLayoutExtension extends LexxyExtension {
       handle.addEventListener("pointerup", () => {
         drag.abort()
         if (width) {
-          resizeAttachment(editor, key, width)
+          resizeAttachment(editor, key, image.offsetWidth)
         }
       }, { signal: drag.signal })
 
@@ -144,7 +144,12 @@ export class AttachmentLayoutExtension extends LexxyExtension {
       button.addEventListener("click", (event) => {
         event.preventDefault()
         event.stopPropagation()
-        editor.update(() => $setState($getNodeByKey(key), alignmentState, alignment), { discrete: true })
+        editor.update(() => {
+          const node = $getNodeByKey(key)
+          if ($getState(node, alignmentState) !== alignment) {
+            $setState(node, alignmentState, alignment)
+          }
+        }, { discrete: true })
       }, { signal: this.#domListeners.signal })
 
       group.append(button)

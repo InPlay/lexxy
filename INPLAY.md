@@ -1,0 +1,45 @@
+# InPlay's Lexxy branch
+
+The `inplay-extensions` branch is upstream Lexxy (basecamp/lexxy `main`) with these changes on top:
+
+1. `lexxy.gemspec` requires `railties >= 7.2` instead of `>= 8.0.2`, so a Rails 7.2 app can bundle it.
+2. `TextAlignmentExtension` (`src/extensions/text_alignment_extension.js`): the `alignLeft`, `alignCenter`, `alignRight` and `alignJustify` toolbar commands, `aria-pressed` on the `[name=align-*]` toolbar buttons, and `text-align` kept in the editor's value.
+3. `AttachmentLayoutExtension` (`src/extensions/attachment_layout_extension.js`): a resize handle and left/center/right buttons on images outside galleries, saved as the attachment's `width` and `data-alignment`.
+4. Both extensions exported from `src/index.js`, with a Vitest test for the image layout round trip.
+5. This file.
+6. The built `app/assets/javascript/lexxy.js` and `lexxy.js.map`, committed so that bundling the gem does not need node or yarn. The rest of `app/assets/javascript/` stays ignored.
+
+Both extensions are opt-in. Without them registered, the editor behaves as upstream's.
+
+The branch was cut from upstream `main` at `75cc141d4aa074d759196765ca227ba98c5c52f0`. The build was made with node v26.8.1 and yarn 1.22.22.
+
+## How InPlay registers the extensions
+
+InPlay imports `lexxy.js` from one URL and calls `configure` once, in the same module:
+
+```js
+import { configure, TextAlignmentExtension, AttachmentLayoutExtension } from "lexxy"
+
+configure({
+  global: { extensions: [ TextAlignmentExtension, AttachmentLayoutExtension ] },
+  default: { headings: [ "h1", "h2", "h3" ] }
+})
+```
+
+`configure` replaces arrays rather than appending to them, so a second call with `extensions` would drop the first call's list.
+
+InPlay's server must also allow `data-alignment` on attachments (`ActionText::ContentHelper.allowed_attributes` and `ActionText::Attachment::ATTRIBUTES`); the gem does not add it.
+
+## Pulling upstream changes
+
+A rebase rewrites every commit on the branch, and InPlay's `Gemfile.lock` pins one of those commits by sha. Bundler can only check out a pinned sha that a branch on this remote still contains, so never amend, force-push or delete a branch holding a pinned sha. Each pull goes to a new branch instead:
+
+1. `git fetch origin upstream`, then `git checkout -b inplay-extensions-<yyyy-mm-dd> origin/<branch>`, where `<branch>` is the one InPlay's Gemfile names now.
+2. `git rebase upstream/main`, dropping the old build commit (`git rebase -i` and `drop`, or resolve its conflict by deleting both built files).
+3. `yarn install && yarn build`, then commit `app/assets/javascript/lexxy.js` and `lexxy.js.map` as a new build commit.
+4. Update the upstream sha and the node and yarn versions in this file, and commit.
+5. `git push -u origin inplay-extensions-<yyyy-mm-dd>`.
+6. In InPlay, point the Gemfile's `branch:` at the new branch and run `bundle update lexxy`.
+7. In InPlay, re-run the catalog render snapshot and `spec/acceptance/oscar/admin_manages_catalog_pages_spec.rb`.
+
+A rebuild without a rebase (for example after changing an extension) is a new build commit on the current branch, pushed normally.

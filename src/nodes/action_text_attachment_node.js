@@ -20,7 +20,7 @@ export class ActionTextAttachmentNode extends DecoratorNode {
   }
 
   static importJSON(serializedNode) {
-    return new ActionTextAttachmentNode({ ...serializedNode })
+    return new ActionTextAttachmentNode({ ...serializedNode }).updateFromJSON(serializedNode)
   }
 
   static importDOM() {
@@ -180,6 +180,7 @@ export class ActionTextAttachmentNode extends DecoratorNode {
 
   exportJSON() {
     return {
+      ...super.exportJSON(),
       type: "action_text_attachment",
       version: 1,
       sgid: this.sgid,

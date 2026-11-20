@@ -6,8 +6,9 @@ The `inplay-extensions` branch is upstream Lexxy (basecamp/lexxy `main`) with th
 2. `TextAlignmentExtension` (`src/extensions/text_alignment_extension.js`): the `alignLeft`, `alignCenter`, `alignRight` and `alignJustify` toolbar commands, `aria-pressed` on the `[name=align-*]` toolbar buttons, and `text-align` kept in the editor's value.
 3. `AttachmentLayoutExtension` (`src/extensions/attachment_layout_extension.js`): a resize handle and left/center/right buttons on images and previewable files outside galleries, saved as the attachment's `width` and `data-alignment`.
 4. Both extensions exported from `src/index.js`, with a Vitest test for the image layout round trip.
-5. This file.
-6. The built `app/assets/javascript/lexxy.js` and `lexxy.js.map`, committed so that bundling the gem does not need node or yarn. The rest of `app/assets/javascript/` stays ignored.
+5. `ActionTextAttachmentNode` writes and reads Lexical node state in its `exportJSON` and `importJSON`, so an image copied and pasted inside the editor keeps the alignment `AttachmentLayoutExtension` stores there.
+6. This file.
+7. The built `app/assets/javascript/lexxy.js` and `lexxy.js.map`, committed so that bundling the gem does not need node or yarn. The rest of `app/assets/javascript/` stays ignored.
 
 Both extensions are opt-in. Without them registered, the editor behaves as upstream's.
 

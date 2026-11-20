@@ -24269,7 +24269,9 @@ class TextAlignmentExtension extends LexxyExtension {
     const alignment = $blockAlignment(selection.anchor.getNode());
     for (const value of ALIGNMENTS$1) {
       const button = this.editorElement.toolbar?.querySelector(`[name="align-${value}"]`);
-      if (button) button.ariaPressed = value === alignment;
+      if (button) {
+        button.ariaPressed = value === alignment;
+      }
     }
   }
 }
@@ -24380,6 +24382,7 @@ class AttachmentLayoutExtension extends LexxyExtension {
 
       const startX = event.clientX;
       const startWidth = image.offsetWidth;
+      const startStyleWidth = image.style.width;
       const drag = new AbortController();
       let width;
 
@@ -24392,8 +24395,14 @@ class AttachmentLayoutExtension extends LexxyExtension {
 
       handle.addEventListener("pointerup", () => {
         drag.abort();
-        handle.releasePointerCapture(event.pointerId);
-        if (width) resizeAttachment(editor, key, width);
+        if (width) {
+          resizeAttachment(editor, key, width);
+        }
+      }, { signal: drag.signal });
+
+      handle.addEventListener("pointercancel", () => {
+        drag.abort();
+        image.style.width = startStyleWidth;
       }, { signal: drag.signal });
     }, { signal: this.#domListeners.signal });
 
@@ -24422,8 +24431,10 @@ class AttachmentLayoutExtension extends LexxyExtension {
   }
 }
 
+// Priority 2 outranks ActionTextAttachmentNode's own conversion. An attachment with
+// content is CustomActionTextAttachmentNode's, which claims it at priority 2 as well.
 function alignedAttachmentConversion(element) {
-  if (element.hasAttribute("data-alignment") && !element.hasAttribute("content")) {
+  if (element.hasAttribute("data-alignment") && !element.getAttribute("content")) {
     return {
       conversion: extendConversion(ActionTextAttachmentNode, ActionTextAttachmentNode.TAG_NAME, $applyAlignment),
       priority: 2
